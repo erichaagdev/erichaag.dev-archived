@@ -1,4 +1,4 @@
-name: Build
+name: Publish
 
 on:
   push:
@@ -7,16 +7,11 @@ on:
     tags:
     - v*.*.*
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-  DEPLOY_EMAIL: eah0592@gmail.com
-  DEPLOY_PATH: erichaagdev/erichaag.dev/prod
-  DEPLOY_REPOSITORY: erichaagdev/deployments
-
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
+    outputs:
+      imageVersion: ${{ steps.meta.outputs.version }}
     steps:
     - name: Checkout
       uses: actions/checkout@v2
@@ -24,14 +19,14 @@ jobs:
       id: meta
       uses: docker/metadata-action@v3
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        images: ghcr.io/${{ github.repository }}
         tags: |
-          type=sha,prefix=
-          type=raw,value=latest
+          type=sha,prefix=,priority=2
+          type=raw,value=latest,priority=1
     - name: Docker login
       uses: docker/login-action@v1
       with:
-        registry: ${{ env.REGISTRY }}
+        registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
     - name: Docker build & push
@@ -42,21 +37,13 @@ jobs:
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
   deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-      with:
-        repository: ${{ env.DEPLOY_REPOSITORY }}
-        token: ${{ secrets.ACCESS_TOKEN_GITHUB }}
-    - name: Deployment update
-      run: |
-        git config user.name "$GITHUB_ACTOR"
-        git config user.email "$DEPLOY_EMAIL"
-        VERSION=$(echo "$GITHUB_SHA" | cut -c -7)
-        IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION"
-        cd "$DEPLOY_PATH"
-        kustomize edit set image "$IMAGE"
-        git commit --all --message "Deploy $IMAGE"
-        git push
+    needs: publish
+    uses: erichaagdev/workflows/.github/workflows/deployment-repository.yaml@main
+    with:
+      email: eah0592@gmail.com
+      repository: erichaagdev/deployments
+      path: erichaagdev/erichaag.dev/prod
+      image: ghcr.io/${{ github.repository }}
+      version: ${{ needs.publish.outputs.imageVersion }}
+    secrets:
+      token: ${{ secrets.ACCESS_TOKEN_GITHUB }}
